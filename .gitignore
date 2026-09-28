@@ -1,0 +1,37 @@
+# Python environment
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets and local configurations
+.env
+.env.local
+
+# Telegram persistent session data (CRITICAL: NEVER COMMIT)
+data/*.session
+data/*.session-journal
+data/*.db
+data/*.sqlite*
+data/app.db
+
+# Temporary downloaded/uploaded media files
+tmp/*
+!tmp/.gitkeep
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Texts
+/*.txt
++ requirements.txt
