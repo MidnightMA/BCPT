@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 from app.cache.cache_service import CacheService
 from app.core.constants import DEFAULT_CHATS_PER_PAGE
 from app.core.logging import get_logger
-from app.database.repository import ChatCacheRepository, FavoriteRepository
+from app.database.repository import AuditRepository, ChatCacheRepository, FavoriteRepository
 from app.database.session import get_db_session
 from app.telegram.adapter import ChatDTO, ChatPermissionsDTO, TelegramClientAdapter
 from app.utils.pagination import PaginatedResult, paginate_list
@@ -98,3 +98,46 @@ class ChatService:
                 username=chat_dto.username,
             )
             return True
+
+    async def resolve_and_get_chat(
+        self,
+        user_id: int,
+        identifier: str | int,
+    ) -> Tuple[ChatDTO, ChatPermissionsDTO]:
+        """Resolve arbitrary Telegram username or ID and return metadata with user permissions."""
+        chat_dto = await self.adapter.resolve_peer(identifier)
+        perms_dto = await self.adapter.get_permissions(chat_dto.id)
+
+        async with get_db_session() as session:
+            fav_repo = FavoriteRepository(session)
+            cache_repo = ChatCacheRepository(session)
+            chat_dto.is_favorite = await fav_repo.is_favorite(user_id, chat_dto.id)
+            await cache_repo.upsert_chat(
+                chat_id=chat_dto.id,
+                title=chat_dto.title,
+                chat_type=chat_dto.chat_type.value,
+                username=chat_dto.username,
+                unread_count=chat_dto.unread_count,
+            )
+
+        return chat_dto, perms_dto
+
+    async def join_channel(
+        self,
+        user_id: int,
+        channel_id: int | str,
+    ) -> ChatDTO:
+        """Join a public channel on Telegram and record audit log."""
+        chat_dto = await self.adapter.join_channel(channel_id)
+
+        async with get_db_session() as session:
+            audit = AuditRepository(session)
+            await audit.log_action(
+                user_id=user_id,
+                action="JOIN_CHANNEL",
+                chat_id=chat_dto.id,
+                details=f"title={chat_dto.title}, username={chat_dto.username}",
+            )
+
+        logger.info(f"User {user_id} joined channel {chat_dto.id} ({chat_dto.title})")
+        return chat_dto

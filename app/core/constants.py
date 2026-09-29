@@ -36,6 +36,8 @@ class BotState(StrEnum):
     SEARCHING_CHATS = "searching_chats"
     SEARCHING_MESSAGES = "searching_messages"
     CONFIRMING_ACTION = "confirming_action"
+    WAITING_FOR_PEER = "waiting_for_peer"
+    WAITING_FOR_MSG_ID = "waiting_for_msg_id"
 
 
 class CallbackAction(StrEnum):
@@ -61,6 +63,10 @@ class CallbackAction(StrEnum):
     CANCEL = "cancel"
     REFRESH = "ref"
     NOOP = "noop"
+    OPEN_PEER = "opeer"
+    JOIN_CHAN = "jchan"
+    VIEW_MSG = "vmsg"
+    PROMPT_VIEW_MSG = "pvmsg"
 
 
 # Telegram limits

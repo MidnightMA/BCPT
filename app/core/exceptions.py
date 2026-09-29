@@ -37,6 +37,22 @@ class ChatNotFoundError(TelegramClientError):
         super().__init__(message=message or default_msg, user_message=user_msg)
 
 
+class PeerNotFoundError(TelegramClientError):
+    """Raised when an entered username, phone, or ID cannot be found or resolved."""
+    def __init__(self, identifier: str | int, message: str | None = None):
+        self.identifier = identifier
+        default_msg = f"User or channel '{identifier}' not found or does not exist."
+        user_msg = f"⚠️ *Target Not Found* : The username or ID *{identifier}* does not exist or is invalid."
+        super().__init__(message=message or default_msg, user_message=user_msg)
+
+
+class ChannelJoinError(TelegramClientError):
+    """Raised when unable to join a channel (e.g. private channel, banned, etc.)."""
+    def __init__(self, message: str = "Unable to join channel.", user_message: str | None = None):
+        user_msg = user_message or "⚠️ *Cannot Join Channel* : Channel is private, invite-only, or access is restricted."
+        super().__init__(message=message, user_message=user_msg)
+
+
 class MessageNotFoundError(TelegramClientError):
     """Raised when a specific message ID does not exist."""
     def __init__(self, message_id: int, message: str | None = None):

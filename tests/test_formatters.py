@@ -3,9 +3,9 @@
 from datetime import datetime, timezone
 
 from app.bot.formatters.chat import format_home_screen
-from app.bot.formatters.message import format_message_entry
-from app.core.constants import MessageType
-from app.telegram.adapter import MessageDTO
+from app.bot.formatters.message import format_full_message_view, format_message_entry
+from app.core.constants import ChatType, MessageType
+from app.telegram.adapter import ChatDTO, MessageDTO
 from app.utils.telegram_utils import escape_markdown, format_bytes, truncate_text
 
 
@@ -86,3 +86,31 @@ def test_format_message_entry_outgoing():
     assert "Bob \\*dev\\*" in formatted_in
     assert "Hello \\_world\\_" in formatted_in
     assert "📷 Photo" in formatted_in
+
+
+def test_format_full_message_view():
+    """Verify detailed message view rendering with media and un-truncated text."""
+    chat = ChatDTO(id=101, title="VIP Channel", chat_type=ChatType.CHANNEL)
+    msg = MessageDTO(
+        id=42,
+        chat_id=101,
+        sender_id=999,
+        sender_name="You",
+        is_outgoing=True,
+        text="A full paragraph explaining the announcement without truncation.",
+        date=datetime.now(timezone.utc),
+        media_type=MessageType.DOCUMENT,
+        media_filename="report.pdf",
+        media_size=1048576,
+        media_mime_type="application/pdf",
+        grouped_id=12345,
+    )
+    view = format_full_message_view(chat, msg, media_count=1)
+    assert "#42" in view
+    assert "VIP Channel" in view
+    assert "➡️ *You*" in view
+    assert "A full paragraph explaining the announcement" in view
+    assert "report.pdf" in view
+    assert "1.0 MB" in view
+    assert "application/pdf" in view
+    assert "#12345" in view

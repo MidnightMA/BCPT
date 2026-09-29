@@ -9,9 +9,11 @@ from telethon.sessions import StringSession
 
 from app.core.config import get_settings
 from app.core.exceptions import (
+    ChannelJoinError,
     ChatNotFoundError,
     ConnectionFailedError,
     FloodWaitError,
+    PeerNotFoundError,
     PermissionDeniedError,
     TelegramClientError,
 )
@@ -103,7 +105,13 @@ def map_telethon_error(exc: Exception) -> Exception:
         return FloodWaitError(seconds=exc.seconds)
     if isinstance(exc, (errors.UserBannedInChannelError, errors.ChatAdminRequiredError, errors.ChatWriteForbiddenError)):
         return PermissionDeniedError(action="perform this action", message=str(exc))
-    if isinstance(exc, (errors.ChannelPrivateError, errors.ChatIdInvalidError, errors.PeerIdInvalidError, ValueError)):
+    if isinstance(exc, (errors.UsernameNotOccupiedError, errors.UsernameInvalidError)):
+        return PeerNotFoundError(identifier="Target", message=str(exc))
+    if isinstance(exc, errors.ChannelPrivateError):
+        return PeerNotFoundError(identifier="Target", message="This channel or chat is private or inaccessible.")
+    if isinstance(exc, (errors.ChannelsTooMuchError, errors.ChannelInvalidError)):
+        return ChannelJoinError(message=str(exc))
+    if isinstance(exc, (errors.ChatIdInvalidError, errors.PeerIdInvalidError, ValueError)):
         return ChatNotFoundError(chat_id="Unknown", message=str(exc))
     if isinstance(exc, errors.RPCError):
         return TelegramClientError(message=f"Telegram RPC Error ({exc.code}): {exc.message}")

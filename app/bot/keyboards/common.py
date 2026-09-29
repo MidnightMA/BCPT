@@ -47,11 +47,12 @@ def get_home_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("⭐ Favorites", callback_data=build_cb(CallbackAction.FAVORITES, 1)),
         ],
         [
+            InlineKeyboardButton("🌐 Open ID / Channel", callback_data=build_cb(CallbackAction.OPEN_PEER)),
             InlineKeyboardButton("🔎 Search Dialogs", callback_data=build_cb(CallbackAction.SEARCH_CHATS)),
-            InlineKeyboardButton("⚙️ Settings", callback_data=build_cb(CallbackAction.SETTINGS)),
         ],
         [
-            InlineKeyboardButton("🔄 Refresh Dashboard", callback_data=build_cb(CallbackAction.HOME)),
+            InlineKeyboardButton("⚙️ Settings", callback_data=build_cb(CallbackAction.SETTINGS)),
+            InlineKeyboardButton("🔄 Refresh", callback_data=build_cb(CallbackAction.HOME)),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)

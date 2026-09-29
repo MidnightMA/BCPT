@@ -3,12 +3,24 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from app.core.constants import ChatType, MessageType
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class MediaItemDTO:
+    """Represents a downloaded media item with local path and metadata."""
+    file_path: Path
+    media_type: MessageType
+    filename: Optional[str] = None
+    size: Optional[int] = None
+    mime_type: Optional[str] = None
+    caption: Optional[str] = None
 
 
 @dataclass
@@ -55,6 +67,8 @@ class MessageDTO:
     media_type: MessageType = MessageType.TEXT
     media_filename: Optional[str] = None
     media_size: Optional[int] = None
+    media_mime_type: Optional[str] = None
+    grouped_id: Optional[int] = None
     can_edit: bool = False
     can_delete: bool = False
 
@@ -178,6 +192,27 @@ class TelegramClientAdapter(ABC):
         query: str,
         limit: int = 20,
     ) -> List[ChatDTO]:
+        pass
+
+    @abstractmethod
+    async def resolve_peer(self, identifier: str | int) -> ChatDTO:
+        pass
+
+    @abstractmethod
+    async def join_channel(self, channel_id: int | str) -> ChatDTO:
+        pass
+
+    @abstractmethod
+    async def get_message(self, chat_id: int, message_id: int) -> MessageDTO:
+        pass
+
+    @abstractmethod
+    async def download_message_media(
+        self,
+        chat_id: int,
+        message_id: int,
+        temp_dir: str,
+    ) -> List[MediaItemDTO]:
         pass
 
 
@@ -381,6 +416,48 @@ class TelethonAdapter(TelegramClientAdapter):
             if q in d.title.lower() or (d.username and q in d.username.lower())
         ]
         return matched[:limit]
+
+    async def resolve_peer(self, identifier: str | int) -> ChatDTO:
+        from app.telegram.client import map_telethon_error
+        from app.telegram.dialogs import resolve_peer_entity
+        try:
+            return await resolve_peer_entity(self.manager.raw_client, identifier)
+        except Exception as exc:
+            raise map_telethon_error(exc)
+
+    async def join_channel(self, channel_id: int | str) -> ChatDTO:
+        from app.telegram.client import map_telethon_error
+        from app.telegram.dialogs import join_channel_entity
+        try:
+            return await join_channel_entity(self.manager.raw_client, channel_id)
+        except Exception as exc:
+            raise map_telethon_error(exc)
+
+    async def get_message(self, chat_id: int, message_id: int) -> MessageDTO:
+        from app.telegram.client import map_telethon_error
+        from app.telegram.messages import fetch_single_message
+        try:
+            return await fetch_single_message(self.manager.raw_client, chat_id, message_id)
+        except Exception as exc:
+            raise map_telethon_error(exc)
+
+    async def download_message_media(
+        self,
+        chat_id: int,
+        message_id: int,
+        temp_dir: str,
+    ) -> List[MediaItemDTO]:
+        from app.telegram.client import map_telethon_error
+        from app.telegram.media import download_media_for_message
+        try:
+            return await download_media_for_message(
+                self.manager.raw_client,
+                chat_id=chat_id,
+                message_id=message_id,
+                temp_dir=temp_dir,
+            )
+        except Exception as exc:
+            raise map_telethon_error(exc)
 
 
 _adapter_instance: Optional[TelegramClientAdapter] = None

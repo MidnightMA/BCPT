@@ -191,13 +191,22 @@ pytest --cov=app tests/
   - Paginated dialog list with chat type badges (👤 User, 👥 Group, 📢 Channel, 🤖 Bot, 💾 Saved Messages).
   - Unread badge counter (🔴).
   - Bookmark favorite chats with one-touch toggle (⭐).
-- **Message Operations**:
-  - View latest 10 messages with outgoing (`➡️ You`) vs incoming (`⬅️ Sender`) indicators.
-  - History pagination (`◀️ Older` / `Newest ▶️`).
-  - Send new messages and reply to specific messages.
-  - Edit outgoing messages.
-  - Safe confirmation prompt before deleting messages (`[ ✅ Confirm ]` / `[ ❌ Cancel ]`).
-  - Pin important messages in chat.
+- **Direct User Resolution & Public Channel Discovery**:
+  - Enter any Telegram `@username`, public link (`t.me/...`), or numeric ID to resolve users or channels via Telethon.
+  - Send messages or files to private users directly, even if the personal Telegram account has never contacted them before.
+  - Preview public channels, inspect their metadata and recent messages, and join them with one tap using `➕ Join Channel`.
+  - Graceful handling of invalid usernames, inaccessible/private channels, and MTProto errors.
+- **Complete Message & Media Viewer**:
+  - Select any message code (`👁 #ID`) or enter a message ID (`🔍 View #`) to inspect the complete message without truncation.
+  - Automatically downloads and delivers original media through the Bale bot:
+    - 📷 Photos
+    - 🎬 Videos
+    - 📁 Documents & arbitrary files
+    - 🎵 Audio files & 🎙 voice notes
+    - 📦 Multi-item Albums & media groups (sent as media groups with fallback to individual delivery)
+  - Full caption and text retention, media metadata (filenames, file sizes, mime types).
+  - Temporary disk storage with guaranteed cleanup in `finally` blocks and 50MB upload size guards.
+  - Interactive message controls: quick Reply, Edit, Pin, Delete, and return navigation.
 - **File Transfers**:
   - Send files, photos, videos, audio, and documents through your Telegram account via Bale.
   - Automatic download to temporary disk storage with guaranteed cleanup in `finally` blocks.

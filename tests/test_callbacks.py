@@ -42,3 +42,34 @@ def test_invalid_callback_parsing():
     assert parse_cb("") == ("unknown", [])
     assert parse_cb("random_string_without_prefix") == ("unknown", [])
     assert parse_cb("p:") == ("unknown", [])
+
+
+def test_new_features_callbacks():
+    """Verify callback building and parsing for peer opening, joining, and viewing full messages."""
+    # Open peer
+    open_peer_cb = build_cb(CallbackAction.OPEN_PEER)
+    assert open_peer_cb == "p:opeer"
+    act, args = parse_cb(open_peer_cb)
+    assert act == "opeer"
+    assert args == []
+
+    # Join channel
+    join_cb = build_cb(CallbackAction.JOIN_CHAN, -1001234567890)
+    assert join_cb == "p:jchan:-1001234567890"
+    act, args = parse_cb(join_cb)
+    assert act == "jchan"
+    assert args == ["-1001234567890"]
+
+    # View message
+    view_msg_cb = build_cb(CallbackAction.VIEW_MSG, 101, 42)
+    assert view_msg_cb == "p:vmsg:101:42"
+    act, args = parse_cb(view_msg_cb)
+    assert act == "vmsg"
+    assert args == ["101", "42"]
+
+    # Prompt view message
+    prompt_cb = build_cb(CallbackAction.PROMPT_VIEW_MSG, 101)
+    assert prompt_cb == "p:pvmsg:101"
+    act, args = parse_cb(prompt_cb)
+    assert act == "pvmsg"
+    assert args == ["101"]

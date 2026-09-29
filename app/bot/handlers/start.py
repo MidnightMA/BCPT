@@ -59,6 +59,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "This bot runs on Bale and acts as a control panel for your personal Telegram account.\n\n"
         " *Available Navigation:* \n"
         "• 💬 *Chats* : Browse, paginate, and search your Telegram dialogs.\n"
+        "• 🌐 *Open ID / Channel* : Enter any Telegram @username or ID to message private users or view and join public channels.\n"
+        "• 👁 *View Messages* : View complete message content, retrieve photos, videos, files, audio, and full media albums.\n"
         "• ✍️ *Send Message* : Send texts directly from your account.\n"
         "• 📎 *Send File* : Upload documents, media, or photos.\n"
         "• ⭐ *Favorites* : Bookmark important chats for quick access.\n"

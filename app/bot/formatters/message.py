@@ -82,3 +82,65 @@ def format_chat_view(
     if len(full_text) > TELEGRAM_SAFE_MSG_LEN:
         return full_text[:TELEGRAM_SAFE_MSG_LEN] + "\n\n _[Message history truncated due to length]_ "
     return full_text
+
+
+def format_full_message_view(
+    chat: ChatDTO,
+    msg: MessageDTO,
+    media_count: int = 0,
+    media_notes: Optional[List[str]] = None,
+) -> str:
+    """Format full, comprehensive message view for a single targeted message."""
+    chat_title = escape_markdown(chat.title)
+    is_out = msg.is_outgoing
+    direction_icon = "➡️" if is_out else "⬅️"
+    sender_name = escape_markdown(msg.sender_name)
+    time_str = format_timestamp(msg.date)
+
+    lines = [
+        f"💬 *Message #{msg.id}* in *{chat_title}* ",
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"{direction_icon} *{sender_name}* _({time_str})_",
+    ]
+
+    if msg.reply_to_msg_id:
+        lines.append(f"↪️ _In reply to message #{msg.reply_to_msg_id}_")
+
+    # Media metadata section
+    if msg.media_type != MessageType.TEXT or media_count > 0:
+        media_label = MEDIA_ICONS.get(msg.media_type, "📦 Media")
+        meta_items = []
+        if msg.media_filename:
+            meta_items.append(f"Filename: {escape_markdown(msg.media_filename)}")
+        if msg.media_size:
+            meta_items.append(f"Size: {format_bytes(msg.media_size)}")
+        if msg.media_mime_type:
+            meta_items.append(f"Type: {escape_markdown(msg.media_mime_type)}")
+        if msg.grouped_id:
+            meta_items.append(f"Album: #{msg.grouped_id}")
+        if media_count > 1:
+            meta_items.append(f"Total media items: {media_count}")
+
+        meta_desc = " • ".join(meta_items) if meta_items else "Attached media retrieved"
+        lines.append(f"\n📎 *{media_label}:* {meta_desc}")
+
+    if media_notes:
+        for note in media_notes:
+            lines.append(f"ℹ️ _{escape_markdown(note)}_")
+
+    # Full message text (without truncation up to safe telegram limits)
+    if msg.text:
+        clean_text = escape_markdown(msg.text)
+        lines.append(f"\n📝 *Content:*\n{clean_text}")
+    elif msg.media_type == MessageType.TEXT:
+        lines.append("\n _[Empty text message]_ ")
+
+    lines.extend([
+        "\n━━━━━━━━━━━━━━━━━━━━",
+        " _Select an action below:_ ",
+    ])
+
+    full_text = "\n".join(lines)
+    if len(full_text) > TELEGRAM_SAFE_MSG_LEN:
+        return full_text[:TELEGRAM_SAFE_MSG_LEN] + "\n\n _[Text truncated due to Telegram size limit]_ "
+    return full_text

@@ -6,7 +6,7 @@ from app.core.exceptions import PermissionDeniedError
 from app.core.logging import get_logger
 from app.database.repository import AuditRepository
 from app.database.session import get_db_session
-from app.telegram.adapter import MessageDTO, TelegramClientAdapter
+from app.telegram.adapter import MediaItemDTO, MessageDTO, TelegramClientAdapter
 
 logger = get_logger(__name__)
 
@@ -156,3 +156,20 @@ class MessageService:
 
         logger.info(f"User {user_id} pinned message {message_id} in chat {chat_id}")
         return success
+
+    async def get_message(
+        self,
+        chat_id: int,
+        message_id: int,
+    ) -> MessageDTO:
+        """Fetch details for a single message."""
+        return await self.adapter.get_message(chat_id, message_id)
+
+    async def download_message_media(
+        self,
+        chat_id: int,
+        message_id: int,
+        temp_dir: str,
+    ) -> List[MediaItemDTO]:
+        """Download attached media items for message/album to temporary storage."""
+        return await self.adapter.download_message_media(chat_id, message_id, temp_dir)

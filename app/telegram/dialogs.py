@@ -1,9 +1,12 @@
 """Telethon dialog and chat fetching implementation."""
 
 from datetime import datetime
+import re
 from typing import List, Optional
 
 from telethon import TelegramClient
+from telethon.errors import UserAlreadyParticipantError
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import Channel, Chat, User
 
 from app.core.constants import ChatType
@@ -76,3 +79,48 @@ async def fetch_chat(client: TelegramClient, chat_id: int) -> ChatDTO:
     """Retrieve a single chat entity by ID and convert to ChatDTO."""
     entity = await client.get_entity(chat_id)
     return entity_to_chat_dto(entity)
+
+
+def normalize_peer_identifier(identifier: str | int) -> str | int:
+    """Clean and normalize a Telegram peer identifier (URL, username, phone, or numeric ID)."""
+    if isinstance(identifier, int):
+        return identifier
+
+    clean = str(identifier).strip()
+    # Strip t.me URL patterns: https://t.me/username, http://t.me/username, t.me/username
+    clean = re.sub(r"^(https?:\/\/)?(www\.)?t\.me\/", "", clean)
+    clean = clean.strip("/")
+
+    # Strip leading @
+    if clean.startswith("@"):
+        clean = clean[1:]
+
+    # Check if purely numeric ID (e.g. 12345678 or -1001234567890)
+    if clean.lstrip("-").isdigit():
+        try:
+            return int(clean)
+        except ValueError:
+            pass
+
+    return clean
+
+
+async def resolve_peer_entity(client: TelegramClient, identifier: str | int) -> ChatDTO:
+    """Resolve an arbitrary username, link, or ID via Telethon and map to ChatDTO."""
+    norm_id = normalize_peer_identifier(identifier)
+    entity = await client.get_entity(norm_id)
+    return entity_to_chat_dto(entity)
+
+
+async def join_channel_entity(client: TelegramClient, channel_id: int | str) -> ChatDTO:
+    """Join a public Telegram channel by ID or username."""
+    norm_id = normalize_peer_identifier(channel_id)
+    entity = await client.get_entity(norm_id)
+    try:
+        await client(JoinChannelRequest(entity))
+    except UserAlreadyParticipantError:
+        pass
+
+    # Refetch entity to get updated participant status/counts
+    updated_entity = await client.get_entity(entity.id)
+    return entity_to_chat_dto(updated_entity)

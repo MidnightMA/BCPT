@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from app.core.constants import ChatType, MessageType
+from app.core.exceptions import MessageNotFoundError, PeerNotFoundError
 from app.services.chat_service import ChatService
 from app.services.media_service import MediaService
 from app.services.message_service import MessageService
@@ -98,3 +100,76 @@ async def test_search_service(mock_adapter, mock_settings):
     res_msgs = await svc.search_messages_in_chat(chat_id=101, query="Hello")
     assert len(res_msgs) == 1
     assert "Hello" in res_msgs[0].text
+
+
+@pytest.mark.asyncio
+async def test_chat_service_resolve_peer(mock_adapter, mock_settings):
+    """Verify resolving both private user and public channel entities."""
+    svc = ChatService(mock_adapter)
+    user_id = 111222333
+
+    # 1. Resolve private user (never contacted before)
+    chat_dto, perms = await svc.resolve_and_get_chat(user_id, "@newuser")
+    assert chat_dto.id == 888
+    assert chat_dto.chat_type == ChatType.USER
+    assert chat_dto.username == "newuser"
+
+    # 2. Resolve public channel
+    chan_dto, chan_perms = await svc.resolve_and_get_chat(user_id, "t.me/newchan")
+    assert chan_dto.id == 9999
+    assert chan_dto.chat_type == ChatType.CHANNEL
+
+    # 3. Nonexistent peer raises PeerNotFoundError
+    with pytest.raises(PeerNotFoundError):
+        await svc.resolve_and_get_chat(user_id, "@nonexistent")
+
+
+@pytest.mark.asyncio
+async def test_chat_service_join_channel(mock_adapter, mock_settings):
+    """Verify joining a public channel."""
+    svc = ChatService(mock_adapter)
+    user_id = 111222333
+
+    joined = await svc.join_channel(user_id, "303")
+    assert joined.id == 303
+    assert joined.chat_type == ChatType.CHANNEL
+
+
+@pytest.mark.asyncio
+async def test_message_service_get_message_and_media(mock_adapter, mock_settings, tmp_path):
+    """Verify retrieving full message and downloading media."""
+    svc = MessageService(mock_adapter)
+
+    # 1. Get existing message
+    msg = await svc.get_message(chat_id=101, message_id=1)
+    assert msg.id == 1
+    assert msg.text == "Hello there!"
+
+    # 2. Nonexistent message raises MessageNotFoundError
+    with pytest.raises(MessageNotFoundError):
+        await svc.get_message(chat_id=101, message_id=99999)
+
+    # 3. Add message with media to mock adapter
+    from datetime import datetime, timezone
+    mock_adapter.messages.append(
+        MessageDTO(
+            id=3,
+            chat_id=101,
+            sender_id=101,
+            sender_name="Alice",
+            is_outgoing=False,
+            text="Look at this photo",
+            date=datetime.now(timezone.utc),
+            media_type=MessageType.PHOTO,
+            media_filename="photo.jpg",
+            media_size=1024,
+            grouped_id=55555,
+        )
+    )
+
+    # Download media items (returns album items)
+    media_items = await svc.download_message_media(chat_id=101, message_id=3, temp_dir=str(tmp_path))
+    assert len(media_items) == 2
+    assert media_items[0].file_path.exists()
+    assert media_items[1].file_path.exists()
+    assert media_items[0].media_type == MessageType.PHOTO

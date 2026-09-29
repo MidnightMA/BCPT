@@ -5,7 +5,7 @@ from typing import List, Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.bot.keyboards.common import build_cb
-from app.core.constants import CallbackAction
+from app.core.constants import CallbackAction, ChatType
 from app.telegram.adapter import ChatDTO, ChatPermissionsDTO, MessageDTO
 
 
@@ -27,6 +27,10 @@ def get_chat_screen_keyboard(
     if perms.can_send_media or perms.can_post_messages:
         write_row.append(
             InlineKeyboardButton("📎 Send File", callback_data=build_cb(CallbackAction.ACT_FILE, chat.id))
+        )
+    if chat.chat_type == ChatType.CHANNEL and not perms.can_post_messages and not perms.is_creator and not perms.is_admin:
+        write_row.append(
+            InlineKeyboardButton("➕ Join Channel", callback_data=build_cb(CallbackAction.JOIN_CHAN, chat.id))
         )
     if write_row:
         buttons.append(write_row)
@@ -56,20 +60,25 @@ def get_chat_screen_keyboard(
 
     buttons.append(nav_row)
 
-    # 3. Message Quick Action Picker (if messages exist, let user select one to reply/edit/delete)
+    # 3. Message Quick Action Picker (View full message including all media)
     if messages:
         picker_row: List[InlineKeyboardButton] = []
-        # Offer quick selection for the last 3-4 messages
         recent_msgs = messages[-3:]
         for m in recent_msgs:
-            sender_tag = "You" if m.is_outgoing else (m.sender_name[:6] if m.sender_name else "User")
             picker_row.append(
                 InlineKeyboardButton(
-                    f"#{m.id} ({sender_tag})",
-                    callback_data=build_cb(CallbackAction.ACT_REPLY, chat.id, m.id),
+                    f"👁 #{m.id}",
+                    callback_data=build_cb(CallbackAction.VIEW_MSG, chat.id, m.id),
                 )
             )
+        picker_row.append(
+            InlineKeyboardButton("🔍 View #", callback_data=build_cb(CallbackAction.PROMPT_VIEW_MSG, chat.id))
+        )
         buttons.append(picker_row)
+    else:
+        buttons.append([
+            InlineKeyboardButton("🔍 View Msg #", callback_data=build_cb(CallbackAction.PROMPT_VIEW_MSG, chat.id))
+        ])
 
     # 4. Search and Info row
     fav_label = "❌ Unstar" if chat.is_favorite else "⭐ Star"
@@ -121,7 +130,8 @@ def get_message_detail_keyboard(
 
     # Return row
     buttons.append([
-        InlineKeyboardButton("◀️ Back to Chat", callback_data=build_cb(CallbackAction.CHAT, chat_id))
+        InlineKeyboardButton("◀️ Back to Chat", callback_data=build_cb(CallbackAction.CHAT, chat_id)),
+        InlineKeyboardButton("🏠 Home", callback_data=build_cb(CallbackAction.HOME)),
     ])
 
     return InlineKeyboardMarkup(buttons)

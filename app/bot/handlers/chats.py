@@ -5,9 +5,10 @@ from telegram.ext import ContextTypes
 
 from app.bot.formatters.chat import format_chat_info, format_chat_list_header
 from app.bot.keyboards.chats import get_chat_list_keyboard
-from app.bot.keyboards.common import build_cb
+from app.bot.keyboards.common import build_cb, get_cancel_keyboard
+from app.bot.states.conversation import get_state_manager
 from app.cache.cache_service import get_cache_service
-from app.core.constants import CallbackAction, DEFAULT_CHATS_PER_PAGE
+from app.core.constants import BotState, CallbackAction, DEFAULT_CHATS_PER_PAGE
 from app.core.logging import get_logger
 from app.core.security import authorized_only
 from app.services.chat_service import ChatService
@@ -110,3 +111,59 @@ async def handle_toggle_favorite(
     # Re-render chat view
     from app.bot.handlers.messages import render_chat_screen
     await render_chat_screen(update, context, chat_id)
+
+
+async def trigger_open_peer_prompt(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Prompt user to enter a Telegram username, public channel, or ID."""
+    user = update.effective_user
+    if not user:
+        return
+
+    state_mgr = await get_state_manager()
+    await state_mgr.set_state(user.id, BotState.WAITING_FOR_PEER)
+
+    prompt = (
+        "🌐 *Open Telegram User or Public Channel* \n\n"
+        "Enter a Telegram username, channel handle, or numeric ID:\n"
+        "• Private user: `@username` or user ID\n"
+        "• Public channel: `@channelname` or `t.me/channelname`\n\n"
+        " _Or press 'Cancel' to return to Home._ "
+    )
+    keyboard = get_cancel_keyboard(CallbackAction.HOME)
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text=prompt,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    elif update.effective_message:
+        await update.effective_message.reply_text(
+            text=prompt,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+
+
+async def handle_join_channel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    channel_id: int,
+) -> None:
+    """Join a public channel and refresh the chat screen."""
+    user = update.effective_user
+    if not user:
+        return
+
+    adapter = get_telegram_adapter()
+    chat_service = ChatService(adapter)
+    await chat_service.join_channel(user.id, channel_id)
+
+    if update.callback_query:
+        await update.callback_query.answer("✅ Successfully joined channel!", show_alert=True)
+
+    from app.bot.handlers.messages import render_chat_screen
+    await render_chat_screen(update, context, channel_id)

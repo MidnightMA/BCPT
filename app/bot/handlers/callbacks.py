@@ -3,14 +3,22 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.bot.handlers.chats import handle_toggle_favorite, render_chat_info_view, render_chats_view
+from app.bot.handlers.chats import (
+    handle_join_channel,
+    handle_toggle_favorite,
+    render_chat_info_view,
+    render_chats_view,
+    trigger_open_peer_prompt,
+)
 from app.bot.handlers.media import trigger_send_file_prompt
 from app.bot.handlers.messages import (
     handle_confirm_delete,
     handle_pin_message,
     render_chat_screen,
+    render_message_detail_view,
     trigger_delete_confirmation,
     trigger_edit_message_prompt,
+    trigger_prompt_view_message,
     trigger_send_message_prompt,
 )
 from app.bot.handlers.search import trigger_search_chats_prompt, trigger_search_messages_prompt
@@ -65,6 +73,26 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 state_mgr = await get_state_manager()
                 await state_mgr.clear_state(user.id)
             await render_chat_screen(update, context, chat_id=chat_id)
+
+        # Open peer prompt (username, link, or ID)
+        elif action == CallbackAction.OPEN_PEER:
+            await trigger_open_peer_prompt(update, context)
+
+        # Join public channel
+        elif action == CallbackAction.JOIN_CHAN:
+            channel_id = int(args[0])
+            await handle_join_channel(update, context, channel_id=channel_id)
+
+        # View complete message with all media
+        elif action == CallbackAction.VIEW_MSG:
+            chat_id = int(args[0])
+            msg_id = int(args[1])
+            await render_message_detail_view(update, context, chat_id=chat_id, message_id=msg_id)
+
+        # Prompt for message ID to view
+        elif action == CallbackAction.PROMPT_VIEW_MSG:
+            chat_id = int(args[0])
+            await trigger_prompt_view_message(update, context, chat_id=chat_id)
 
         # Paginate message history in chat
         elif action == CallbackAction.MSGS:

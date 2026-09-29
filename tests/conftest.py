@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
 import pytest
@@ -11,10 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.cache.redis import CacheClient
 from app.core.config import Settings
 from app.core.constants import ChatType, MessageType
+from app.core.exceptions import MessageNotFoundError, PeerNotFoundError
 from app.database.models import Base
 from app.telegram.adapter import (
     ChatDTO,
     ChatPermissionsDTO,
+    MediaItemDTO,
     MessageDTO,
     TelegramClientAdapter,
     UserDTO,
@@ -231,6 +234,68 @@ class MockTelegramAdapter(TelegramClientAdapter):
         limit: int = 20,
     ) -> List[ChatDTO]:
         return [d for d in self.dialogs if query.lower() in d.title.lower()][:limit]
+
+    async def resolve_peer(self, identifier: str | int) -> ChatDTO:
+        clean = str(identifier).lstrip("@").strip()
+        if clean == "nonexistent":
+            raise PeerNotFoundError(identifier=str(identifier))
+        if clean in ("newuser", "888"):
+            return ChatDTO(id=888, title="New User", chat_type=ChatType.USER, username="newuser")
+        if clean in ("newchan", "channelname", "9999"):
+            return ChatDTO(id=9999, title="Public Channel", chat_type=ChatType.CHANNEL, username="newchan")
+        for d in self.dialogs:
+            if str(d.id) == clean or (d.username and d.username.lower() == clean.lower()):
+                return d
+        return ChatDTO(id=777, title=f"Resolved {clean}", chat_type=ChatType.USER)
+
+    async def join_channel(self, channel_id: int | str) -> ChatDTO:
+        clean = str(channel_id).lstrip("@").strip()
+        if clean == "invalid_chan":
+            from app.core.exceptions import ChannelJoinError
+            raise ChannelJoinError("Cannot join channel")
+        c_id = int(clean) if clean.lstrip("-").isdigit() else 303
+        return ChatDTO(id=c_id, title="News Channel", chat_type=ChatType.CHANNEL)
+
+    async def get_message(self, chat_id: int, message_id: int) -> MessageDTO:
+        for m in self.messages:
+            if m.id == message_id:
+                return m
+        raise MessageNotFoundError(message_id=message_id)
+
+    async def download_message_media(
+        self,
+        chat_id: int,
+        message_id: int,
+        temp_dir: str,
+    ) -> List[MediaItemDTO]:
+        msg = await self.get_message(chat_id, message_id)
+        if msg.media_type == MessageType.TEXT:
+            return []
+        out_dir = Path(temp_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        file_path = out_dir / (msg.media_filename or "media.bin")
+        file_path.write_bytes(b"mock media binary data")
+
+        item1 = MediaItemDTO(
+            file_path=file_path,
+            media_type=msg.media_type,
+            filename=msg.media_filename or "media.bin",
+            size=len(b"mock media binary data"),
+            caption=msg.text or None,
+        )
+        if msg.grouped_id:
+            file_path2 = out_dir / "media_album_2.jpg"
+            file_path2.write_bytes(b"album photo 2")
+            item2 = MediaItemDTO(
+                file_path=file_path2,
+                media_type=MessageType.PHOTO,
+                filename="media_album_2.jpg",
+                size=len(b"album photo 2"),
+                caption=None,
+            )
+            return [item1, item2]
+
+        return [item1]
 
 
 @pytest.fixture
