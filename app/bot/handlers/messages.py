@@ -172,7 +172,10 @@ async def handle_confirm_delete(
     await msg_service.delete_message(user.id, chat_id, message_id)
 
     if update.callback_query:
-        await update.callback_query.answer("🗑 Message deleted successfully.", show_alert=False)
+        try:
+            await update.callback_query.answer("🗑 Message deleted successfully.", show_alert=False)
+        except Exception:
+            pass
 
     await render_chat_screen(update, context, chat_id)
 
@@ -193,15 +196,18 @@ async def handle_pin_message(
     await msg_service.pin_message(user.id, chat_id, message_id)
 
     if update.callback_query:
-        await update.callback_query.answer("📌 Message pinned!", show_alert=False)
+        try:
+            await update.callback_query.answer("📌 Message pinned!", show_alert=False)
+        except Exception:
+            pass
 
     await render_chat_screen(update, context, chat_id)
 
 
 async def _send_individual_media_to_bale(bot, user_id: int, item: MediaItemDTO) -> None:
     """Send a single media item via Bale bot using the appropriate Telegram Bot API method."""
+    caption = escape_markdown(item.caption) if item.caption else None
     try:
-        caption = escape_markdown(item.caption) if item.caption else None
         with open(item.file_path, "rb") as f:
             if item.media_type == MessageType.PHOTO:
                 await bot.send_photo(chat_id=user_id, photo=f, caption=caption, parse_mode="Markdown")
@@ -221,7 +227,27 @@ async def _send_individual_media_to_bale(bot, user_id: int, item: MediaItemDTO) 
                     parse_mode="Markdown",
                 )
     except Exception as exc:
-        logger.error(f"Error sending individual media '{item.filename}' to Bale user {user_id}: {exc}")
+        logger.warning(f"Failed sending media with Markdown parse_mode: {exc}. Retrying without formatting...")
+        try:
+            with open(item.file_path, "rb") as f:
+                if item.media_type == MessageType.PHOTO:
+                    await bot.send_photo(chat_id=user_id, photo=f, caption=item.caption)
+                elif item.media_type == MessageType.VIDEO:
+                    await bot.send_video(chat_id=user_id, video=f, caption=item.caption)
+                elif item.media_type == MessageType.AUDIO:
+                    await bot.send_audio(chat_id=user_id, audio=f, caption=item.caption)
+                elif item.media_type == MessageType.VOICE:
+                    await bot.send_voice(chat_id=user_id, voice=f, caption=item.caption)
+                else:
+                    filename = item.filename or item.file_path.name
+                    await bot.send_document(
+                        chat_id=user_id,
+                        document=f,
+                        filename=filename,
+                        caption=item.caption,
+                    )
+        except Exception as retry_exc:
+            logger.error(f"Error sending individual media '{item.filename}' to Bale user {user_id}: {retry_exc}")
 
 
 async def render_message_detail_view(
@@ -242,9 +268,6 @@ async def render_message_detail_view(
 
     chat_dto, perms_dto = await chat_service.get_chat_details(user.id, chat_id)
     msg_dto = await msg_service.get_message(chat_id, message_id)
-
-    if update.callback_query:
-        await update.callback_query.answer("⏳ Retrieving message and media...", show_alert=False)
 
     media_items: List[MediaItemDTO] = []
     media_notes: List[str] = []

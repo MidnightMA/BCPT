@@ -72,6 +72,9 @@ async def handle_toggle_setting(
             await user_repo.update_settings(user.id, auto_refresh=not current.auto_refresh)
 
     if update.callback_query:
-        await update.callback_query.answer("Setting updated!", show_alert=False)
+        try:
+            await update.callback_query.answer("Setting updated!", show_alert=False)
+        except Exception:
+            pass
 
     await render_settings_view(update, context)

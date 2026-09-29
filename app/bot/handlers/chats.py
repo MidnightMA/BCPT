@@ -105,8 +105,11 @@ async def handle_toggle_favorite(
     is_now_fav = await chat_service.toggle_favorite(user.id, chat_id)
 
     if update.callback_query:
-        status_msg = "⭐ Added to Favorites!" if is_now_fav else "Chat removed from Favorites."
-        await update.callback_query.answer(status_msg, show_alert=False)
+        try:
+            status_msg = "⭐ Added to Favorites!" if is_now_fav else "Chat removed from Favorites."
+            await update.callback_query.answer(status_msg, show_alert=False)
+        except Exception:
+            pass
 
     # Re-render chat view
     from app.bot.handlers.messages import render_chat_screen
@@ -163,7 +166,10 @@ async def handle_join_channel(
     await chat_service.join_channel(user.id, channel_id)
 
     if update.callback_query:
-        await update.callback_query.answer("✅ Successfully joined channel!", show_alert=True)
+        try:
+            await update.callback_query.answer("✅ Successfully joined channel!", show_alert=True)
+        except Exception:
+            pass
 
     from app.bot.handlers.messages import render_chat_screen
     await render_chat_screen(update, context, channel_id)

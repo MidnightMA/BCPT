@@ -29,8 +29,18 @@ from app.bot.states.conversation import get_state_manager
 from app.core.constants import CallbackAction
 from app.core.logging import get_logger
 from app.core.security import authorized_only
+from app.utils.telegram_utils import escape_markdown
 
 logger = get_logger(__name__)
+
+
+ACTIONS_WITH_CUSTOM_ANSWER = {
+    CallbackAction.CONFIRM_DEL,
+    CallbackAction.ACT_PIN,
+    CallbackAction.ACT_FAV,
+    CallbackAction.JOIN_CHAN,
+    CallbackAction.TOGGLE_SETTING,
+}
 
 
 @authorized_only
@@ -40,11 +50,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if not query or not query.data:
         return
 
-    # Acknowledge callback immediately to eliminate loading spinner
-    await query.answer()
-
     action, args = parse_cb(query.data)
     logger.debug(f"Routing callback action: '{action}' with args: {args}")
+
+    # Acknowledge callback immediately to eliminate loading spinner for standard views
+    if action not in ACTIONS_WITH_CUSTOM_ANSWER:
+        try:
+            await query.answer()
+        except Exception as exc:
+            logger.debug(f"Failed to answer callback query: {exc}")
 
     try:
         # Home
@@ -189,7 +203,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     except Exception as exc:
         logger.error(f"Error executing callback action '{action}': {exc}", exc_info=True)
-        error_msg = f"⚠️ *Error:* {exc}"
+        error_msg = f"⚠️ *Error:* {escape_markdown(str(exc))}"
         try:
             await query.edit_message_text(error_msg, parse_mode="Markdown")
         except Exception:

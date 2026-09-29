@@ -73,3 +73,14 @@ def test_new_features_callbacks():
     act, args = parse_cb(prompt_cb)
     assert act == "pvmsg"
     assert args == ["101"]
+
+
+def test_custom_answer_actions():
+    """Verify actions requiring individual toast alerts are categorized."""
+    from app.bot.handlers.callbacks import ACTIONS_WITH_CUSTOM_ANSWER
+    assert CallbackAction.VIEW_MSG not in ACTIONS_WITH_CUSTOM_ANSWER
+    assert CallbackAction.CONFIRM_DEL in ACTIONS_WITH_CUSTOM_ANSWER
+    assert CallbackAction.ACT_PIN in ACTIONS_WITH_CUSTOM_ANSWER
+    assert CallbackAction.ACT_FAV in ACTIONS_WITH_CUSTOM_ANSWER
+    assert CallbackAction.JOIN_CHAN in ACTIONS_WITH_CUSTOM_ANSWER
+    assert CallbackAction.TOGGLE_SETTING in ACTIONS_WITH_CUSTOM_ANSWER
