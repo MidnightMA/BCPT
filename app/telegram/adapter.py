@@ -207,6 +207,7 @@ class TelegramClientAdapter(ABC):
         pass
 
     @abstractmethod
+    @abstractmethod
     async def download_message_media(
         self,
         chat_id: int,
@@ -215,12 +216,40 @@ class TelegramClientAdapter(ABC):
     ) -> List[MediaItemDTO]:
         pass
 
+    @abstractmethod
+    async def mark_chat_read(
+        self,
+        chat_id: int,
+        max_id: Optional[int] = None,
+    ) -> None:
+        pass
+
 
 class TelethonAdapter(TelegramClientAdapter):
-    """Concrete adapter connecting domain methods to Telethon functions with error mapping."""
+    """Concrete adapter connecting domain methods to Telethon functions with error mapping and throttling."""
 
-    def __init__(self, client_manager: any) -> None:
+    def __init__(
+        self,
+        client_manager: any,
+        throttler: Optional[any] = None,
+        cache_service: Optional[any] = None,
+    ) -> None:
         self.manager = client_manager
+        self._throttler = throttler
+        self._cache_service = cache_service
+
+    @property
+    def throttler(self):
+        if self._throttler is None:
+            from app.telegram.limiter import get_telegram_throttler
+            self._throttler = get_telegram_throttler()
+        return self._throttler
+
+    async def _get_cache(self):
+        if self._cache_service is None:
+            from app.cache.cache_service import get_cache_service
+            self._cache_service = await get_cache_service()
+        return self._cache_service
 
     async def connect(self) -> None:
         await self.manager.connect()
@@ -232,10 +261,16 @@ class TelethonAdapter(TelegramClientAdapter):
         return self.manager.is_connected()
 
     async def get_current_user(self) -> UserDTO:
+        from app.core.config import get_settings
         from app.telegram.client import map_telethon_error
+        settings = get_settings()
         try:
-            client = self.manager.raw_client
-            me = await client.get_me()
+            client = await self.manager.ensure_connected()
+            me = await self.throttler.execute(
+                lambda: client.get_me(),
+                dedup_key="current_user",
+                debounce_window=settings.TELEGRAM_DEDUPLICATION_WINDOW,
+            )
             return UserDTO(
                 id=getattr(me, "id", 0),
                 first_name=getattr(me, "first_name", "") or "",
@@ -252,23 +287,54 @@ class TelethonAdapter(TelegramClientAdapter):
         offset_date: Optional[datetime] = None,
         offset_id: int = 0,
     ) -> List[ChatDTO]:
+        from app.core.config import get_settings
         from app.telegram.client import map_telethon_error
         from app.telegram.dialogs import fetch_dialogs
+        settings = get_settings()
         try:
-            return await fetch_dialogs(
-                self.manager.raw_client,
-                limit=limit,
-                offset_date=offset_date,
-                offset_id=offset_id,
+            cache = await self._get_cache()
+            if offset_date is None:
+                cached = await cache.get_cached_dialogs(limit=limit, offset_id=offset_id)
+                if cached is not None:
+                    return cached
+
+            client = await self.manager.ensure_connected()
+            dialogs = await self.throttler.execute(
+                lambda: fetch_dialogs(
+                    client,
+                    limit=limit,
+                    offset_date=offset_date,
+                    offset_id=offset_id,
+                ),
+                dedup_key=f"dialogs:{limit}:{offset_id}",
+                debounce_window=settings.TELEGRAM_DEDUPLICATION_WINDOW,
             )
+            if offset_date is None:
+                await cache.set_cached_dialogs(limit=limit, offset_id=offset_id, dialogs=dialogs)
+            return dialogs
         except Exception as exc:
             raise map_telethon_error(exc)
 
     async def get_chat(self, chat_id: int) -> ChatDTO:
+        from app.core.config import get_settings
         from app.telegram.client import map_telethon_error
         from app.telegram.dialogs import fetch_chat
+        settings = get_settings()
         try:
-            return await fetch_chat(self.manager.raw_client, chat_id)
+            cache = await self._get_cache()
+            cached = await cache.get_cached_chat(chat_id)
+            if cached is not None:
+                return cached
+
+            client = await self.manager.ensure_connected()
+            chat = await self.throttler.execute(
+                lambda: fetch_chat(client, chat_id),
+                chat_id=chat_id,
+                dedup_key=f"chat:{chat_id}",
+                debounce_window=settings.TELEGRAM_DEDUPLICATION_WINDOW,
+            )
+            await cache.set_cached_chat(chat_id, chat)
+            return chat
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -278,15 +344,30 @@ class TelethonAdapter(TelegramClientAdapter):
         limit: int = 10,
         offset_id: int = 0,
     ) -> List[MessageDTO]:
+        from app.core.config import get_settings
         from app.telegram.client import map_telethon_error
         from app.telegram.messages import fetch_messages
+        settings = get_settings()
         try:
-            return await fetch_messages(
-                self.manager.raw_client,
+            cache = await self._get_cache()
+            cached = await cache.get_cached_messages(chat_id=chat_id, limit=limit, offset_id=offset_id)
+            if cached is not None:
+                return cached
+
+            client = await self.manager.ensure_connected()
+            messages = await self.throttler.execute(
+                lambda: fetch_messages(
+                    client,
+                    chat_id=chat_id,
+                    limit=limit,
+                    offset_id=offset_id,
+                ),
                 chat_id=chat_id,
-                limit=limit,
-                offset_id=offset_id,
+                dedup_key=f"msgs:{chat_id}:{limit}:{offset_id}",
+                debounce_window=settings.TELEGRAM_DEDUPLICATION_WINDOW,
             )
+            await cache.set_cached_messages(chat_id=chat_id, limit=limit, offset_id=offset_id, messages=messages)
+            return messages
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -299,12 +380,20 @@ class TelethonAdapter(TelegramClientAdapter):
         from app.telegram.client import map_telethon_error
         from app.telegram.messages import send_text_message
         try:
-            return await send_text_message(
-                self.manager.raw_client,
+            client = await self.manager.ensure_connected()
+            msg = await self.throttler.execute(
+                lambda: send_text_message(
+                    client,
+                    chat_id=chat_id,
+                    text=text,
+                    reply_to_msg_id=reply_to_msg_id,
+                ),
                 chat_id=chat_id,
-                text=text,
-                reply_to_msg_id=reply_to_msg_id,
             )
+            cache = await self._get_cache()
+            await cache.invalidate_chat(chat_id)
+            await cache.invalidate_dialogs()
+            return msg
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -318,13 +407,22 @@ class TelethonAdapter(TelegramClientAdapter):
         from app.telegram.client import map_telethon_error
         from app.telegram.media import upload_file
         try:
-            return await upload_file(
-                self.manager.raw_client,
+            client = await self.manager.ensure_connected()
+            msg = await self.throttler.execute(
+                lambda: upload_file(
+                    client,
+                    chat_id=chat_id,
+                    file_path=file_path,
+                    caption=caption,
+                    reply_to_msg_id=reply_to_msg_id,
+                ),
                 chat_id=chat_id,
-                file_path=file_path,
-                caption=caption,
-                reply_to_msg_id=reply_to_msg_id,
+                is_media=True,
             )
+            cache = await self._get_cache()
+            await cache.invalidate_chat(chat_id)
+            await cache.invalidate_dialogs()
+            return msg
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -337,12 +435,19 @@ class TelethonAdapter(TelegramClientAdapter):
         from app.telegram.client import map_telethon_error
         from app.telegram.messages import edit_text_message
         try:
-            return await edit_text_message(
-                self.manager.raw_client,
+            client = await self.manager.ensure_connected()
+            msg = await self.throttler.execute(
+                lambda: edit_text_message(
+                    client,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                ),
                 chat_id=chat_id,
-                message_id=message_id,
-                text=text,
             )
+            cache = await self._get_cache()
+            await cache.invalidate_chat(chat_id)
+            return msg
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -355,12 +460,19 @@ class TelethonAdapter(TelegramClientAdapter):
         from app.telegram.client import map_telethon_error
         from app.telegram.messages import delete_messages
         try:
-            return await delete_messages(
-                self.manager.raw_client,
+            client = await self.manager.ensure_connected()
+            res = await self.throttler.execute(
+                lambda: delete_messages(
+                    client,
+                    chat_id=chat_id,
+                    message_ids=message_ids,
+                    revoke=revoke,
+                ),
                 chat_id=chat_id,
-                message_ids=message_ids,
-                revoke=revoke,
             )
+            cache = await self._get_cache()
+            await cache.invalidate_chat(chat_id)
+            return res
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -373,20 +485,42 @@ class TelethonAdapter(TelegramClientAdapter):
         from app.telegram.client import map_telethon_error
         from app.telegram.messages import pin_message
         try:
-            return await pin_message(
-                self.manager.raw_client,
+            client = await self.manager.ensure_connected()
+            res = await self.throttler.execute(
+                lambda: pin_message(
+                    client,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    notify=notify,
+                ),
                 chat_id=chat_id,
-                message_id=message_id,
-                notify=notify,
             )
+            cache = await self._get_cache()
+            await cache.invalidate_chat(chat_id)
+            return res
         except Exception as exc:
             raise map_telethon_error(exc)
 
     async def get_permissions(self, chat_id: int) -> ChatPermissionsDTO:
+        from app.core.config import get_settings
         from app.telegram.client import map_telethon_error
         from app.telegram.permissions import evaluate_permissions
+        settings = get_settings()
         try:
-            return await evaluate_permissions(self.manager.raw_client, chat_id)
+            cache = await self._get_cache()
+            cached = await cache.get_cached_permissions(chat_id)
+            if cached is not None:
+                return cached
+
+            client = await self.manager.ensure_connected()
+            perms = await self.throttler.execute(
+                lambda: evaluate_permissions(client, chat_id),
+                chat_id=chat_id,
+                dedup_key=f"perm:{chat_id}",
+                debounce_window=settings.TELEGRAM_DEDUPLICATION_WINDOW,
+            )
+            await cache.set_cached_permissions(chat_id, perms)
+            return perms
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -396,10 +530,18 @@ class TelethonAdapter(TelegramClientAdapter):
         query: str,
         limit: int = 10,
     ) -> List[MessageDTO]:
+        from app.core.config import get_settings
         from app.telegram.client import map_telethon_error
         from app.telegram.messages import search_messages
+        settings = get_settings()
         try:
-            return await search_messages(self.manager.raw_client, chat_id, query, limit)
+            client = await self.manager.ensure_connected()
+            return await self.throttler.execute(
+                lambda: search_messages(client, chat_id, query, limit),
+                chat_id=chat_id,
+                dedup_key=f"smsgs:{chat_id}:{query}:{limit}",
+                debounce_window=settings.TELEGRAM_DEDUPLICATION_WINDOW,
+            )
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -408,7 +550,6 @@ class TelethonAdapter(TelegramClientAdapter):
         query: str,
         limit: int = 20,
     ) -> List[ChatDTO]:
-        # Filter retrieved dialogs by query
         all_dialogs = await self.get_dialogs(limit=100)
         q = query.lower()
         matched = [
@@ -418,10 +559,25 @@ class TelethonAdapter(TelegramClientAdapter):
         return matched[:limit]
 
     async def resolve_peer(self, identifier: str | int) -> ChatDTO:
+        from app.core.config import get_settings
         from app.telegram.client import map_telethon_error
         from app.telegram.dialogs import resolve_peer_entity
+        settings = get_settings()
         try:
-            return await resolve_peer_entity(self.manager.raw_client, identifier)
+            cache = await self._get_cache()
+            cached = await cache.get_cached_peer(identifier)
+            if cached is not None:
+                return cached
+
+            client = await self.manager.ensure_connected()
+            chat = await self.throttler.execute(
+                lambda: resolve_peer_entity(client, identifier),
+                dedup_key=f"peer:{identifier}",
+                debounce_window=settings.TELEGRAM_DEDUPLICATION_WINDOW,
+            )
+            await cache.set_cached_peer(identifier, chat)
+            await cache.set_cached_chat(chat.id, chat)
+            return chat
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -429,15 +585,38 @@ class TelethonAdapter(TelegramClientAdapter):
         from app.telegram.client import map_telethon_error
         from app.telegram.dialogs import join_channel_entity
         try:
-            return await join_channel_entity(self.manager.raw_client, channel_id)
+            client = await self.manager.ensure_connected()
+            chat = await self.throttler.execute(
+                lambda: join_channel_entity(client, channel_id),
+                dedup_key=f"join:{channel_id}",
+            )
+            cache = await self._get_cache()
+            await cache.invalidate_dialogs()
+            await cache.set_cached_chat(chat.id, chat)
+            return chat
         except Exception as exc:
             raise map_telethon_error(exc)
 
     async def get_message(self, chat_id: int, message_id: int) -> MessageDTO:
+        from app.core.config import get_settings
         from app.telegram.client import map_telethon_error
         from app.telegram.messages import fetch_single_message
+        settings = get_settings()
         try:
-            return await fetch_single_message(self.manager.raw_client, chat_id, message_id)
+            cache = await self._get_cache()
+            cached = await cache.get_cached_single_message(chat_id, message_id)
+            if cached is not None:
+                return cached
+
+            client = await self.manager.ensure_connected()
+            msg = await self.throttler.execute(
+                lambda: fetch_single_message(client, chat_id, message_id),
+                chat_id=chat_id,
+                dedup_key=f"msg:{chat_id}:{message_id}",
+                debounce_window=settings.TELEGRAM_DEDUPLICATION_WINDOW,
+            )
+            await cache.set_cached_single_message(chat_id, message_id, msg)
+            return msg
         except Exception as exc:
             raise map_telethon_error(exc)
 
@@ -450,14 +629,40 @@ class TelethonAdapter(TelegramClientAdapter):
         from app.telegram.client import map_telethon_error
         from app.telegram.media import download_media_for_message
         try:
-            return await download_media_for_message(
-                self.manager.raw_client,
+            client = await self.manager.ensure_connected()
+            return await self.throttler.execute(
+                lambda: download_media_for_message(
+                    client,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    temp_dir=temp_dir,
+                ),
                 chat_id=chat_id,
-                message_id=message_id,
-                temp_dir=temp_dir,
+                is_media=True,
             )
         except Exception as exc:
             raise map_telethon_error(exc)
+
+    async def mark_chat_read(
+        self,
+        chat_id: int,
+        max_id: Optional[int] = None,
+    ) -> None:
+        """Acknowledge messages as read in chat only when explicitly opened in panel."""
+        from app.core.config import get_settings
+        settings = get_settings()
+        if not settings.TELEGRAM_AUTO_READ_ON_INSPECT:
+            return
+        try:
+            client = await self.manager.ensure_connected()
+            entity = await client.get_input_entity(chat_id)
+            await self.throttler.execute(
+                lambda: client.send_read_acknowledge(entity, max_id=max_id),
+                chat_id=chat_id,
+            )
+        except Exception as exc:
+            logger.debug(f"Failed to acknowledge read for chat {chat_id}: {exc}")
+
 
 
 _adapter_instance: Optional[TelegramClientAdapter] = None

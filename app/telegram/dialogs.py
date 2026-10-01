@@ -9,7 +9,7 @@ from telethon.errors import UserAlreadyParticipantError
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import Channel, Chat, User
 
-from app.core.constants import ChatType
+from app.core.constants import MAX_DIALOGS_FETCH_LIMIT, ChatType
 from app.telegram.adapter import ChatDTO
 
 
@@ -61,9 +61,10 @@ async def fetch_dialogs(
     offset_date: Optional[datetime] = None,
     offset_id: int = 0,
 ) -> List[ChatDTO]:
-    """Retrieve user dialogs and map them to ChatDTOs."""
+    """Retrieve user dialogs with conservative limit capping and map them to ChatDTOs."""
+    clamped_limit = max(1, min(limit, MAX_DIALOGS_FETCH_LIMIT))
     dialogs = await client.get_dialogs(
-        limit=limit,
+        limit=clamped_limit,
         offset_date=offset_date,
         offset_id=offset_id,
     )

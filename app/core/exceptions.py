@@ -83,6 +83,26 @@ class ConnectionFailedError(TelegramClientError):
         super().__init__(message=message, user_message="⚠️ *Connection Error* : Unable to connect to Telegram.")
 
 
+class CircuitBreakerOpenError(TelegramClientError):
+    """Raised when Telegram operations are temporarily suspended due to repeated errors."""
+    def __init__(self, cooldown_remaining: int | float = 30, message: str | None = None):
+        self.cooldown_remaining = max(1, int(cooldown_remaining))
+        default_msg = f"Circuit breaker open: Telegram operations paused for {self.cooldown_remaining}s."
+        user_msg = (
+            f"🛑 *Safety Limit Active* \n\n"
+            f"Telegram operations are temporarily paused to protect your account from rate limits.\n"
+            f"Cooling down for *{self.cooldown_remaining}s*. Please try again shortly."
+        )
+        super().__init__(message=message or default_msg, user_message=user_msg)
+
+
+class RequestQueueFullError(TelegramClientError):
+    """Raised when the internal Telegram request queue exceeds capacity."""
+    def __init__(self, message: str = "Telegram request queue is full."):
+        user_msg = "⏳ *Request Queue Busy* : Too many requests pending. Please wait a moment."
+        super().__init__(message=message, user_message=user_msg)
+
+
 class ServiceError(AppException):
     """Raised when a service-layer operation fails."""
 

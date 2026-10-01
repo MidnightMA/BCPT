@@ -203,7 +203,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     except Exception as exc:
         logger.error(f"Error executing callback action '{action}': {exc}", exc_info=True)
-        error_msg = f"⚠️ *Error:* {escape_markdown(str(exc))}"
+        from app.core.exceptions import AppException
+        if isinstance(exc, AppException):
+            error_msg = exc.user_message
+        else:
+            error_msg = f"⚠️ *Error:* {escape_markdown(str(exc))}"
         try:
             await query.edit_message_text(error_msg, parse_mode="Markdown")
         except Exception:

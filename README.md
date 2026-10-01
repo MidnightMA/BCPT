@@ -126,6 +126,18 @@ Open `.env` in your editor and configure the required values:
 | `REDIS_URL` | Redis URL (optional; memory fallback used if omitted) | `redis://localhost:6379/0` |
 | `TEMP_DIR` | Directory for temporary file transfers | `tmp` |
 | `DATA_DIR` | Directory for persistent sessions | `data` |
+| `TELEGRAM_RATE_LIMIT_GLOBAL` | Maximum Telegram operations per second globally | `5.0` |
+| `TELEGRAM_PER_CHAT_RATE_LIMIT` | Minimum interval between operations in the same chat (seconds) | `1.0` |
+| `TELEGRAM_MAX_CONCURRENT_REQUESTS` | Maximum concurrent MTProto requests | `3` |
+| `TELEGRAM_MAX_CONCURRENT_MEDIA` | Maximum concurrent media upload/download transfers | `2` |
+| `TELEGRAM_REQUEST_QUEUE_MAX_SIZE` | Maximum pending request queue size | `50` |
+| `TELEGRAM_AUTO_FLOOD_WAIT_MAX` | Max FloodWait seconds to automatically wait & retry | `10` |
+| `TELEGRAM_MAX_RETRIES` | Max retries for transient connection errors | `3` |
+| `TELEGRAM_CIRCUIT_BREAKER_FAILURES` | Consecutive failures before tripping circuit breaker | `5` |
+| `TELEGRAM_CIRCUIT_BREAKER_COOLDOWN` | Circuit breaker cooldown period (seconds) | `30.0` |
+| `TELEGRAM_DEDUPLICATION_WINDOW` | Window to debounce repeated button taps (seconds) | `2.0` |
+| `TELEGRAM_AUTO_READ_ON_INSPECT` | Mark chat read only when controller inspects chat | `true` |
+
 
 > **Finding Your Bale User ID:** Your user ID in Bale can be found by sending a message to your bot or using an ID lookup bot in Bale.
 
@@ -220,10 +232,45 @@ pytest --cov=app tests/
   - Whitelist authorization check on every update (`@authorized_only`).
   - Path traversal protection for all file uploads.
   - Automatic secret scrubbing filter on application logs.
+- **Client Engineering & Account Protection**:
+  - Centralized async rate limiter and per-chat pacing.
+  - Controlled request concurrency and dedicated media semaphore.
+  - Full FloodWait compliance (smart wait within threshold, fast-fail when exceeding).
+  - Transient retry with exponential backoff and randomized jitter.
+  - Three-state Circuit Breaker (CLOSED / OPEN / HALF_OPEN) preventing cascading failures.
+  - Request deduplication and debouncing for repeated UI interactions.
+  - Strongly typed caching with TTLs for entities, dialogs, messages, and permissions.
+  - Conservative pagination caps on message and dialog fetching.
+  - Activity-conscious read acknowledgements: messages are marked read only when the controller explicitly inspects that chat in the panel.
+  - No synthetic background presence or artificial "always online" pinging.
 
 ---
 
-## 8. Telegram & Bale API Notes
+## 8. Telegram MTProto Client Hardening & Account Safety
+
+The application hardens the Telethon MTProto layer to mimic conservative, client-like usage patterns rather than bot-like bursting:
+
+1. **Centralized Throttler (`app/telegram/limiter.py`)**:
+   - Every MTProto operation passes through a single throttler that enforces global spacing (`TELEGRAM_RATE_LIMIT_GLOBAL`) and per-chat spacing (`TELEGRAM_PER_CHAT_RATE_LIMIT`).
+   - A bounded request queue (`TELEGRAM_REQUEST_QUEUE_MAX_SIZE`) prevents task accumulation under heavy load.
+2. **Controlled Concurrency**:
+   - General API calls are restricted by a global semaphore (`TELEGRAM_MAX_CONCURRENT_REQUESTS`).
+   - Media downloads and uploads run under an independent, conservative semaphore (`TELEGRAM_MAX_CONCURRENT_MEDIA`).
+3. **FloodWait Policy**:
+   - `flood_sleep_threshold` is set to `0` in Telethon so the throttler manages FloodWait explicitly.
+   - If Telegram requires waiting `≤ TELEGRAM_AUTO_FLOOD_WAIT_MAX` seconds, the throttler sleeps the required duration plus a safety margin, then retries once.
+   - If FloodWait exceeds the threshold, it immediately raises `FloodWaitError` and records the deadline. All subsequent requests fail fast without hitting Telegram servers until the required wait time has passed.
+4. **Circuit Breaker**:
+   - Tracks consecutive MTProto RPC and server errors. If errors reach `TELEGRAM_CIRCUIT_BREAKER_FAILURES`, the circuit breaker trips to `OPEN`, pausing operations for `TELEGRAM_CIRCUIT_BREAKER_COOLDOWN` seconds to protect account standing.
+5. **Entity, Dialog & Message Caching**:
+   - Chat metadata, permissions, resolved peers, dialog lists, and message histories are cached with configurable TTLs. Mutative actions (send, edit, delete, pin, join) automatically invalidate affected caches.
+6. **Presence & Read Receipts**:
+   - No background loops generate artificial "always online" status.
+   - Messages are acknowledged as read (`send_read_acknowledge`) only when the controller opens a chat screen or views a message detail screen.
+
+---
+
+## 9. Telegram & Bale API Notes
 
 1. **Bale Bot API Compatibility**: Bale provides an API compatible with the Telegram Bot API at `https://tapi.bale.ai/bot<token>/METHOD_NAME`. `python-telegram-bot` communicates with Bale seamlessly via its `base_url` parameter.
 2. **Bale Markdown Formatting**: In Bale, message text is formatted using Markdown. Bold text uses ` *text* ` (with spaces before and after asterisks), italics use ` _text_ ` (with spaces before and after underscores), and links use `[Text](URL)`. The formatters escape special characters in untrusted content to ensure reliable rendering.
@@ -234,7 +281,7 @@ pytest --cov=app tests/
 
 ---
 
-## 9. Security Notes
+## 10. Security Notes
 
 - **Never Commit Secrets**: `data/telegram.session` and `.env` contain authentication tokens and are explicitly ignored in `.gitignore`.
 - **Server-Side Session**: The Telethon session file stays entirely on the server and is never transmitted over bot chats.

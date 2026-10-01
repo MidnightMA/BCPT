@@ -63,8 +63,9 @@ class TelethonClientManager:
                 api_id=self.api_id,
                 api_hash=self.api_hash,
                 auto_reconnect=True,
-                connection_retries=5,
-                retry_delay=2,
+                connection_retries=10,
+                retry_delay=3,
+                flood_sleep_threshold=0,  # Central throttler manages FloodWait explicitly
             )
 
             try:
@@ -84,6 +85,12 @@ class TelethonClientManager:
             except Exception as exc:
                 logger.error(f"Failed to connect Telethon: {exc}", exc_info=True)
                 raise ConnectionFailedError(f"Failed to connect Telethon: {exc}") from exc
+
+    async def ensure_connected(self) -> TelegramClient:
+        """Ensure Telethon is active and connected, reconnecting if disconnected."""
+        if self._client is not None and self._client.is_connected():
+            return self._client
+        return await self.connect()
 
     async def disconnect(self) -> None:
         """Cleanly disconnect Telethon client."""

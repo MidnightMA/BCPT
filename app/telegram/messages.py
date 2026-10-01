@@ -15,7 +15,11 @@ from telethon.tl.types import (
     MessageService,
 )
 
-from app.core.constants import MessageType
+from app.core.constants import (
+    MAX_MESSAGES_FETCH_LIMIT,
+    MAX_SEARCH_MESSAGES_LIMIT,
+    MessageType,
+)
 from app.core.exceptions import MessageNotFoundError
 from app.telegram.adapter import MessageDTO
 
@@ -137,11 +141,12 @@ async def fetch_messages(
     limit: int = 10,
     offset_id: int = 0,
 ) -> List[MessageDTO]:
-    """Fetch paginated message history for a chat."""
+    """Fetch paginated message history for a chat with conservative limit bounds."""
+    clamped_limit = max(1, min(limit, MAX_MESSAGES_FETCH_LIMIT))
     entity = await client.get_input_entity(chat_id)
     raw_messages = await client.get_messages(
         entity,
-        limit=limit,
+        limit=clamped_limit,
         offset_id=offset_id,
     )
     # Reverse so older messages appear first in chat history view
@@ -212,9 +217,10 @@ async def search_messages(
     query: str,
     limit: int = 10,
 ) -> List[MessageDTO]:
-    """Search for messages containing the query string."""
+    """Search for messages containing the query string with conservative limit bounds."""
+    clamped_limit = max(1, min(limit, MAX_SEARCH_MESSAGES_LIMIT))
     entity = await client.get_input_entity(chat_id)
-    results = await client.get_messages(entity, search=query, limit=limit)
+    results = await client.get_messages(entity, search=query, limit=clamped_limit)
     return [telethon_message_to_dto(m, chat_id) for m in results]
 
 
@@ -242,12 +248,12 @@ async def fetch_album_raw_messages(
         return [target_msg]
 
     target_id = getattr(target_msg, "id", 0)
-    min_id = max(0, target_id - 15)
-    max_id = target_id + 15
+    min_id = max(0, target_id - 10)
+    max_id = target_id + 10
 
     surrounding = await client.get_messages(
         entity,
-        limit=30,
+        limit=20,
         min_id=min_id,
         max_id=max_id,
     )

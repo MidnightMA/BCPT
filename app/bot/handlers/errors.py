@@ -11,8 +11,10 @@ from app.core.constants import CallbackAction
 from app.core.exceptions import (
     AppException,
     AuthError,
+    CircuitBreakerOpenError,
     FloodWaitError,
     PermissionDeniedError,
+    RequestQueueFullError,
     TelegramClientError,
 )
 from app.core.logging import get_logger
@@ -30,7 +32,7 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
         return
 
     # Determine user-friendly error response based on domain exception
-    if isinstance(exc, FloodWaitError):
+    if isinstance(exc, (FloodWaitError, CircuitBreakerOpenError, RequestQueueFullError)):
         user_text = exc.user_message
     elif isinstance(exc, PermissionDeniedError):
         user_text = exc.user_message

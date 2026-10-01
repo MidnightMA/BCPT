@@ -41,6 +41,14 @@ async def render_chat_screen(
     chat_dto, perms_dto = await chat_service.get_chat_details(user.id, chat_id)
     messages = await msg_service.get_messages(chat_id=chat_id, limit=10, offset_id=offset_id)
 
+    # Mark messages as read only when controller explicitly inspects chat in panel
+    if messages:
+        latest_msg_id = max(m.id for m in messages)
+        try:
+            await adapter.mark_chat_read(chat_id=chat_id, max_id=latest_msg_id)
+        except Exception as read_err:
+            logger.debug(f"Failed to acknowledge read for chat {chat_id}: {read_err}")
+
     text = format_chat_view(chat_dto, messages, offset_id=offset_id)
     keyboard = get_chat_screen_keyboard(chat_dto, perms_dto, messages, offset_id=offset_id)
 
@@ -268,6 +276,12 @@ async def render_message_detail_view(
 
     chat_dto, perms_dto = await chat_service.get_chat_details(user.id, chat_id)
     msg_dto = await msg_service.get_message(chat_id, message_id)
+
+    # Mark message as read only upon explicit inspection in panel
+    try:
+        await adapter.mark_chat_read(chat_id=chat_id, max_id=message_id)
+    except Exception as read_err:
+        logger.debug(f"Failed to acknowledge read for msg {message_id}: {read_err}")
 
     media_items: List[MediaItemDTO] = []
     media_notes: List[str] = []

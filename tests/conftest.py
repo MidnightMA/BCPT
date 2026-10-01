@@ -297,6 +297,13 @@ class MockTelegramAdapter(TelegramClientAdapter):
 
         return [item1]
 
+    async def mark_chat_read(
+        self,
+        chat_id: int,
+        max_id: Optional[int] = None,
+    ) -> None:
+        pass
+
 
 @pytest.fixture
 def mock_adapter() -> MockTelegramAdapter:
